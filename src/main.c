@@ -5,14 +5,16 @@
 #define m_get_bit(word, index) ((word) & (1ULL << (U64)(index)))
 #define m_pop_bit(word, index) ((word) &= ~(1ULL << (U64)(index)))
 
+//arguments start
 #define key_size 29 //4GB
-#define hash_size (1 << key_size)
+//#define board_start_position 0x001c1c7f7f7f1c14ULL 
+#define board_start_position 0x001c1c7f777f1c1cULL 
+//#define board_start_position 0x001c1c7f777f1c0cULL
+//arguments end
 #define max_move_count 76
 #define initial_piece_count 32
 #define board_legal_mask 0xffe3e3808080e3e3ULL
-//#define board_start_position 0x001c1c7f7f7f1c14ULL 
-  #define board_start_position 0x001c1c7f777f1c1cULL 
-//#define board_start_position 0x001c1c7f777f1c0cULL
+#define hash_size (1 << key_size)
 
 U64 table_masks[max_move_count];
 U64 table_moves[max_move_count];
@@ -21,11 +23,18 @@ typedef struct Stack{
     int index;
 } Stack;
 
-typedef struct Entry{
-    U64 board;
 
-} Entry;
-Entry* transposition_table;
+U64* transposition_table;
+
+void print_board(U64);
+void generate_tables();
+void Stack_push(Stack*, U64);
+U64 Stack_pop(Stack*);
+void Move_gen(Stack*, U64);
+U64 flipHorizontal(U64);
+U64 flipDiagonal(U64);
+void fill_symmetries(U64, U64*);
+void fill_keys(U64*, U64*);
 
 U64 flipHorizontal (U64 x) {
    const U64 k1 = 0x5555555555555555ULL;
@@ -49,7 +58,23 @@ U64 flipDiagonal(U64 x) {
    x ^=       t ^ (t >>  7) ;
    return x;
 }
-
+void fill_symmetries(U64 board, U64* symmetries){
+    symmetries[0] = flipDiagonal(board);
+    symmetries[1] = flipHorizontal(symmetries[0]);
+    symmetries[2] = flipDiagonal(symmetries[1]);
+    symmetries[3] = flipHorizontal(symmetries[2]);
+    symmetries[4] = flipDiagonal(symmetries[3]);
+    symmetries[5] = flipHorizontal(symmetries[4]);
+    symmetries[6] = flipDiagonal(symmetries[5]);
+    symmetries[7] = flipHorizontal(symmetries[6]);
+}
+void fill_keys(U64* symmetries, U64* keys){
+    for(int i = 0; i < 8; i++){
+        keys[i] = symmetries[i];
+        keys[i] ^= symmetries[i] >> key_size;
+        keys[i] = (unsigned int)(keys[i] & (hash_size - 1));
+    }
+}
 static inline int population_count(U64 word)
 {
     int count = 0;
@@ -64,13 +89,95 @@ static inline unsigned int key_gen(U64 word){
     key ^= word >> key_size;
     return (unsigned int)(key & (hash_size - 1));
 }
-void print_board(U64);
-void generate_tables();
-void Stack_push(Stack*, U64);
-U64 Stack_pop(Stack*);
-void Move_gen(Stack*, U64);
 
+void Stack_push(Stack* stack, U64 board){
+    stack->boards[(stack->index)++] = board;
+}
 
+U64 Stack_pop(Stack* stack){
+    return stack->boards[--(stack->index)];
+}
+
+void Move_gen(Stack* stack, U64 board){
+    for(int i = 0; i < 76; i++){
+        if((board & table_masks[i]) == table_moves[i]){
+            Stack_push(stack, board^table_masks[i]);
+        }
+    }
+}
+//debug solutions start
+typedef struct Boardlist{
+    U64 boards[initial_piece_count];
+    int index;
+} Boardlist;
+void print_movelist(Boardlist list){
+    for(int i = 0; i < initial_piece_count; i++){
+        print_board(list.boards[i]);
+    }
+}
+//debug solutions end
+int main(){
+    U64 iterations = 0;
+    U64 solutions_found = 0;
+    U64 positions_found = 0;
+    U64 table_entry_count = 0;
+    U64 table_hits = 0;
+    U64 table_miss = 0;
+    U64 board;
+    U64 symmetries[8];
+    U64 keys[8];
+    int flag;
+    U64 uniques = 1;
+    Stack stack = {.index = 0, .boards = {0ULL}};
+    Stack_push(&stack, board_start_position);
+    generate_tables();
+    transposition_table = (U64*)malloc(hash_size * sizeof(U64));
+    if(transposition_table == NULL) printf("no malloc");
+    for(int i = 0; i < hash_size; i++){
+        transposition_table[i] = 0x0ULL;
+    }
+    printf("Init: Done\n");
+    print_board(board_start_position);
+    while(stack.index > 0){
+        iterations += 8;
+        flag = 0;
+        board = Stack_pop(&stack);
+        fill_symmetries(board, symmetries);
+        fill_keys(symmetries, keys);
+        for(int i = 0; i < 8; i++){
+            if(transposition_table[keys[i]] == 0ULL){
+                table_entry_count++;
+                positions_found++;
+            }
+            else if(transposition_table[keys[i]] == symmetries[i]){
+                flag = 1;
+                table_hits++;
+            }
+            else{
+                table_miss++;
+                positions_found++;
+            }
+        }
+        for(int i = 0; i < 8; i++){
+            transposition_table[keys[i]] = symmetries[i];
+        }
+        if(flag == 0){
+            Move_gen(&stack, board);
+            uniques++;
+        }
+        if(population_count(board) == 1){
+            solutions_found++;
+        }
+        if(iterations % 10000000 == 0){
+            printf("Sol:%4llu  Pos:%10llu  TT HR:%5lf  TT FR:%5lf\n", solutions_found,positions_found,(double)table_hits/(table_hits+table_miss),(double)table_entry_count/hash_size);
+            printf("Uni:%4llu  TT Hits:%10llu  TT Miss:%10llu\n", uniques, table_hits, table_miss);
+        }
+    }
+    printf("Sol:%4llu  Pos:%10llu  TT HR:%5lf  TT FR:%5lf\n", solutions_found,positions_found,(double)table_hits/(table_hits+table_miss),(double)table_entry_count/hash_size);
+    printf("Uni:%4llu  TT Hits:%10llu  TT Miss:%10llu\n", uniques, table_hits, table_miss);
+}
+
+//utils and tools start
 void print_board(U64 board){
     for(int i = 0; i < 8; i++){
         printf("\n");
@@ -118,102 +225,4 @@ void generate_tables(){
         printf("incorrect max_move_count");
     }
 }
-
-void Stack_push(Stack* stack, U64 board){
-    stack->boards[(stack->index)++] = board;
-}
-
-U64 Stack_pop(Stack* stack){
-    return stack->boards[--(stack->index)];
-}
-
-void Move_gen(Stack* stack, U64 board){
-    for(int i = 0; i < 76; i++){
-        if((board & table_masks[i]) == table_moves[i]){
-            Stack_push(stack, board^table_masks[i]);
-        }
-    }
-}
-
-
-
-typedef struct Boardlist{
-    U64 boards[initial_piece_count];
-    int index;
-} Boardlist;
-void print_movelist(Boardlist list){
-    for(int i = 0; i < initial_piece_count; i++){
-        print_board(list.boards[i]);
-    }
-}
-void fill_symmetries(U64 board, U64* symmetries){
-    symmetries[0] = flipDiagonal(board);
-    symmetries[1] = flipHorizontal(symmetries[0]);
-    symmetries[2] = flipDiagonal(symmetries[1]);
-    symmetries[3] = flipHorizontal(symmetries[2]);
-    symmetries[4] = flipDiagonal(symmetries[3]);
-    symmetries[5] = flipHorizontal(symmetries[4]);
-    symmetries[6] = flipDiagonal(symmetries[5]);
-    symmetries[7] = flipHorizontal(symmetries[6]);
-}
-int main()
-{
-    U64 solutions_found = 0;
-    U64 positions_searched = 0;
-    U64 table_hits = 0;
-    U64 table_miss = 0;
-    U64 table_fill = 0;
-    generate_tables();
-    Boardlist list = {.boards = {0x0ULL}, .index = 0};
-    list.boards[(list.index)++] = board_start_position;
-    transposition_table = (Entry*)malloc(hash_size * sizeof(Entry));
-    for(int i = 0; i < hash_size; i++){
-        transposition_table[i].board = 0x0ULL;
-    }
-    if(transposition_table == NULL) printf("no malloc");
-    Stack stack = {.index = 0, .boards = {0ULL}};
-    Stack_push(&stack, board_start_position);
-    U64 board;
-    U64 symmetries[8];
-    print_board(board_start_position);
-    while(stack.index > 0){
-        board = Stack_pop(&stack);
-        fill_symmetries(board, symmetries);
-        int flag = 0;
-        for(int i = 0; i < 8; i++){
-            positions_searched++;
-            list.index = initial_piece_count - population_count(board);
-            list.boards[list.index] = board;
-            unsigned int key = key_gen(symmetries[i]);
-            if(transposition_table[key].board != symmetries[i]){
-                if(transposition_table[key].board != 0ULL){
-                    table_miss++;
-                }
-                else{
-                    table_fill++;
-                }
-                transposition_table[key].board = symmetries[i];
-                
-            }
-            else{
-                table_hits++;
-                flag = 1;
-            }
-            if(flag == 0){
-                Move_gen(&stack, board);
-                if(population_count(board) == 1){
-                    solutions_found++;
-                    //print_board(board);
-                    print_movelist(list);
-                }
-            }
-        }
-        if(positions_searched % 100000000 == 0){
-            //print_board(board);
-            printf("Solutions:%4llu Searched:%12llu TT hits:%10lf TT ratio:%10lf TT fill:%10lf\n", solutions_found, positions_searched, (double)table_hits / positions_searched, ((double)table_hits) / (table_hits + table_miss), (double)table_fill/hash_size);
-        }
-    }
-    printf("Solutions:%4llu Searched:%12llu TT hits:%10lf TT ratio:%10lf TT fill:%10lf\n", solutions_found, positions_searched, (double)table_hits / positions_searched, ((double)table_hits) / (table_hits + table_miss), (double)table_fill/hash_size);
-    free(transposition_table);
-    return 0;
-}
+//utils and tools end
