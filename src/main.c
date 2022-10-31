@@ -127,7 +127,7 @@ int main(){
     U64 symmetries[8];
     U64 keys[8];
     int flag;
-    U64 uniques = 1;
+    U64 uniques = 0;
     Stack stack = {.index = 0, .boards = {0ULL}};
     Stack_push(&stack, board_start_position);
     generate_tables();
@@ -170,11 +170,11 @@ int main(){
         }
         if(iterations % 10000000 == 0){
             printf("Sol:%4llu  Pos:%10llu  TT HR:%5lf  TT FR:%5lf\n", solutions_found,positions_found,(double)table_hits/(table_hits+table_miss),(double)table_entry_count/hash_size);
-            printf("Uni:%4llu  TT Hits:%10llu  TT Miss:%10llu\n", uniques, table_hits, table_miss);
+            printf("Uni:%4llu  TT Hits:%10llu  TT Miss:%10llu\n\n", uniques, table_hits, table_miss);
         }
     }
     printf("Sol:%4llu  Pos:%10llu  TT HR:%5lf  TT FR:%5lf\n", solutions_found,positions_found,(double)table_hits/(table_hits+table_miss),(double)table_entry_count/hash_size);
-    printf("Uni:%4llu  TT Hits:%10llu  TT Miss:%10llu\n", uniques, table_hits, table_miss);
+    printf("Uni:%4llu  TT Hits:%10llu  TT Miss:%10llu\n\n", uniques, table_hits, table_miss);
 }
 
 //utils and tools start
